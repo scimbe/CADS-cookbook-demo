@@ -64,12 +64,18 @@ services:
       - cookbook_agent_state:/var/lib/ct-agent
 
   cookbook-crew-bridge:
-    # #201: the cookbook pipeline's OWN bridge (ct-cookbook-bridge), the origin reverse-proxies
-    # POST /cookbook/build here. Runs safety → structure → presentation → review over the real
-    # tunnel, one COOKBOOK_*_CMD per role dialing its peer via `ct-agent channel` (CT_CHANNEL_CALL_
-    # SERVICE mode). Each role needs its OWN channel identity (a different peer), so a single global
+    # #201: the cookbook pipeline's OWN bridge, the origin reverse-proxies POST /cookbook/build
+    # here. Runs safety → structure → presentation → review over the real tunnel, one
+    # COOKBOOK_*_CMD per role dialing its peer via `ct-agent channel` (CT_CHANNEL_CALL_SERVICE
+    # mode). Each role needs its OWN channel identity (a different peer), so a single global
     # CT_CHANNEL_* can't serve all four — each CMD carries its role's identity via an `env …` prefix
     # ($$… = a literal $ so the bridge's own `sh -c` expands it at call time).
+    #
+    # Thin-bridge migration (#219): the HTTP server + wire-format assembly used to be
+    # `ct-cookbook-bridge`, a binary built INSIDE CADS-Tunnel core. It's now plain Node
+    # (bridge/server.js, this repo) — only the generic `ct-agent` CLI (used by the COOKBOOK_*_CMD
+    # role dials below) still comes from core, via bridge/Dockerfile's named `tunnel-src` build
+    # context.
     #
     # OPT-IN (per #194): only starts with `--profile crew`; the plain `up` runs the demo without it
     # (the page shows an "unreachable, try again" until the crew is live). The per-role vars DEFAULT
@@ -77,11 +83,11 @@ services:
     # docker/deploy/.env) once central provisions the grants, then `--profile crew up`.
     profiles: ["crew"]
     build:
-      context: ${CT_TUNNEL_SRC:-../CADS-Tunnel}
-      dockerfile: docker/Dockerfile
-      args:
-        - CRATE=ct-agent
-    command: ["ct-cookbook-bridge"]
+      context: .
+      dockerfile: bridge/Dockerfile
+      additional_contexts:
+        tunnel-src: ${CT_TUNNEL_SRC:-../CADS-Tunnel}
+    command: ["node", "server.js"]
     environment:
       - COOKBOOK_BRIDGE_LISTEN=0.0.0.0:8789
       - COOKBOOK_EDGE_BROKER=${COOKBOOK_EDGE_BROKER:-}
