@@ -6,8 +6,10 @@
 #   enable:   examples/cookbook-demo/run-demo.sh up
 #   disable:  examples/cookbook-demo/run-demo.sh down
 #
-# Runs ALONGSIDE an already-running plane (ct-edge with CT_EDGE_BROWSER_LISTEN=:443 + a
-# ct-control-plane the agent onboards against). Env comes from docker/deploy/.env.
+# cookbook-agent onboards as a remote agent against a control-plane/edge that does
+# NOT have to run on this host (e.g. the hosted bunsenbrenner.org plane) —
+# CT_AGENT_CP_URL/CT_AGENT_EDGE just need to be reachable over the network, so this
+# stack only needs its own private compose network. Env comes from docker/deploy/.env.
 services:
   cookbook-origin:
     # Plain Caddy: terminates TLS with a cert issued CORE-side (#219,
@@ -34,7 +36,7 @@ services:
   cookbook-agent:
     # The workspace ct-agent image, in Browser-Plane mode (SNI passthrough).
     build:
-      context: ../..
+      context: ${CT_TUNNEL_SRC:-../CADS-Tunnel}
       dockerfile: docker/Dockerfile
       args:
         - CRATE=ct-agent
@@ -75,7 +77,7 @@ services:
     # docker/deploy/.env) once central provisions the grants, then `--profile crew up`.
     profiles: ["crew"]
     build:
-      context: ../..
+      context: ${CT_TUNNEL_SRC:-../CADS-Tunnel}
       dockerfile: docker/Dockerfile
       args:
         - CRATE=ct-agent
@@ -115,8 +117,9 @@ volumes:
   cookbook_caddy_data:
   cookbook_agent_state:
 
-# Join the running self-host plane's network (compose.selfhost.yml, name: ct-selfhost).
+# This stack's own private network — sufficient when onboarding against a
+# remote/hosted control-plane (e.g. bunsenbrenner.org). If the plane ever runs on
+# THIS same host again, switch back to an external `ct-selfhost_default` network.
 networks:
   default:
-    name: ct-selfhost_default
-    external: true
+    name: cookbook-demo_default
