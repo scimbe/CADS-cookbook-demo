@@ -19,6 +19,10 @@ ENV_FILE="${ENV_FILE:-../../docker/deploy/.env}"
 [ -f "$ENV_FILE" ] && set -a && . "$ENV_FILE" && set +a || true
 
 HOSTNAME_FQDN="${HOSTNAME_FQDN:-cookbook.bunsenbrenner.org}"
+# CT_AGENT_EDGE_CERT_URL below must be this bare control-plane base URL, not
+# .../pki/ca — ct-agent's ControlPlaneClient::fetch_edge_cert() appends /pki/ca
+# itself, so appending it here too produces a double .../pki/ca path (404 loop).
+# Same fix as PR #215 (help-site).
 CP_URL="${CP_URL:-${COOKBOOK_AGENT_CP_URL:-http://127.0.0.1:8090}}"
 EDGE="${EDGE:-${COOKBOOK_AGENT_EDGE:-127.0.0.1:4433}}"
 TENANT="${TENANT:-cookbook-demo}"
@@ -97,7 +101,7 @@ COOKBOOK_JOIN_TOKEN="$TOKEN" \
 COOKBOOK_AGENT_TOKEN="$COOKBOOK_AGENT_TOKEN" \
 COOKBOOK_AGENT_EDGE="$EDGE" \
 COOKBOOK_AGENT_CP_URL="$CP_URL" \
-COOKBOOK_AGENT_EDGE_CERT_URL="${COOKBOOK_AGENT_EDGE_CERT_URL:-$CP_URL/pki/ca}" \
+COOKBOOK_AGENT_EDGE_CERT_URL="${COOKBOOK_AGENT_EDGE_CERT_URL:-$CP_URL}" \
   $COMPOSE up --build -d
 
 say "Waiting for https://$HOSTNAME_FQDN/ (Caddy completes the deSEC DNS-01 challenge first) …"
