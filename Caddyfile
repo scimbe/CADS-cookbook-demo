@@ -1,11 +1,10 @@
 # Origin for the cookbook.bunsenbrenner.org demo — same shape as flappy-demo/help-site: Caddy
-# terminates TLS with a real Let's Encrypt cert via DNS-01 against deSEC, so it needs NO inbound
-# :80/:443 of its own. The Browser-Plane agent forwards the raw TLS here; TLS terminates at this
-# origin, keeping the edge/plane payload-blind.
-{
-	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
-	email admin@bunsenbrenner.org
-}
+# terminates TLS, so it needs NO inbound :80/:443 of its own. The Browser-Plane agent forwards
+# the raw TLS here; TLS terminates at this origin, keeping the edge/plane payload-blind.
+#
+# #219: the cert is issued CORE-side (scripts/authorize-pipeline.sh, deSEC DNS-01 with the
+# operator's zone-wide token) and mounted in as static files — this Caddyfile only ever reads
+# fullchain.pem/privkey.pem, never holds a DNS credential of its own.
 
 cookbook.bunsenbrenner.org {
 	# #201: the studio POSTs its {prompt, image?} here; the cookbook crew bridge runs
@@ -15,15 +14,7 @@ cookbook.bunsenbrenner.org {
 	root * /srv
 	file_server
 	encode gzip
-	tls {
-		dns desec {
-			token {$DESEC_TOKEN}
-		}
-		resolvers ns1.desec.io ns2.desec.org
-		dns_ttl 3600s
-		propagation_delay 30s
-		propagation_timeout 2m
-	}
+	tls /certs/fullchain.pem /certs/privkey.pem
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
