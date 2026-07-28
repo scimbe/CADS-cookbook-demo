@@ -6,8 +6,10 @@
 #   enable:   examples/cookbook-demo/run-demo.sh up
 #   disable:  examples/cookbook-demo/run-demo.sh down
 #
-# Runs ALONGSIDE an already-running plane (ct-edge with CT_EDGE_BROWSER_LISTEN=:443 + a
-# ct-control-plane the agent onboards against). Env comes from docker/deploy/.env.
+# cookbook-agent onboards as a remote agent against a control-plane/edge that does
+# NOT have to run on this host (e.g. the hosted bunsenbrenner.org plane) —
+# CT_AGENT_CP_URL/CT_AGENT_EDGE just need to be reachable over the network, so this
+# stack only needs its own private compose network. Env comes from docker/deploy/.env.
 services:
   cookbook-origin:
     # Plain Caddy: terminates TLS with a cert issued CORE-side (#219,
@@ -34,7 +36,7 @@ services:
   cookbook-agent:
     # The workspace ct-agent image, in Browser-Plane mode (SNI passthrough).
     build:
-      context: ../..
+      context: ${CT_TUNNEL_SRC:-../CADS-Tunnel}
       dockerfile: docker/Dockerfile
       args:
         - CRATE=ct-agent
@@ -62,12 +64,18 @@ services:
       - cookbook_agent_state:/var/lib/ct-agent
 
   cookbook-crew-bridge:
-    # #201: the cookbook pipeline's OWN bridge (ct-cookbook-bridge), the origin reverse-proxies
-    # POST /cookbook/build here. Runs safety → structure → presentation → review over the real
-    # tunnel, one COOKBOOK_*_CMD per role dialing its peer via `ct-agent channel` (CT_CHANNEL_CALL_
-    # SERVICE mode). Each role needs its OWN channel identity (a different peer), so a single global
+    # #201: the cookbook pipeline's OWN bridge, the origin reverse-proxies POST /cookbook/build
+    # here. Runs safety → structure → presentation → review over the real tunnel, one
+    # COOKBOOK_*_CMD per role dialing its peer via `ct-agent channel` (CT_CHANNEL_CALL_SERVICE
+    # mode). Each role needs its OWN channel identity (a different peer), so a single global
     # CT_CHANNEL_* can't serve all four — each CMD carries its role's identity via an `env …` prefix
     # ($$… = a literal $ so the bridge's own `sh -c` expands it at call time).
+    #
+    # Thin-bridge migration (#219): the HTTP server + wire-format assembly used to be
+    # `ct-cookbook-bridge`, a binary built INSIDE CADS-Tunnel core. It's now plain Node
+    # (bridge/server.js, this repo) — only the generic `ct-agent` CLI (used by the COOKBOOK_*_CMD
+    # role dials below) still comes from core, via bridge/Dockerfile's named `tunnel-src` build
+    # context.
     #
     # OPT-IN (per #194): only starts with `--profile crew`; the plain `up` runs the demo without it
     # (the page shows an "unreachable, try again" until the crew is live). The per-role vars DEFAULT
@@ -75,11 +83,11 @@ services:
     # docker/deploy/.env) once central provisions the grants, then `--profile crew up`.
     profiles: ["crew"]
     build:
-      context: ../..
-      dockerfile: docker/Dockerfile
-      args:
-        - CRATE=ct-agent
-    command: ["ct-cookbook-bridge"]
+      context: .
+      dockerfile: bridge/Dockerfile
+      additional_contexts:
+        tunnel-src: ${CT_TUNNEL_SRC:-../CADS-Tunnel}
+    command: ["node", "server.js"]
     environment:
       - COOKBOOK_BRIDGE_LISTEN=0.0.0.0:8789
       - COOKBOOK_EDGE_BROKER=${COOKBOOK_EDGE_BROKER:-}
@@ -115,8 +123,9 @@ volumes:
   cookbook_caddy_data:
   cookbook_agent_state:
 
-# Join the running self-host plane's network (compose.selfhost.yml, name: ct-selfhost).
+# This stack's own private network — sufficient when onboarding against a
+# remote/hosted control-plane (e.g. bunsenbrenner.org). If the plane ever runs on
+# THIS same host again, switch back to an external `ct-selfhost_default` network.
 networks:
   default:
-    name: ct-selfhost_default
-    external: true
+    name: cookbook-demo_default
