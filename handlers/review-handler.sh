@@ -12,17 +12,25 @@
 # any LLM/parse failure — an unreviewed recipe must never be served. Requires: jq.
 # Point CT_LLM_CMD at your LLM CLI (default: `claude`).
 set -uo pipefail
+REQ_ID="$$-$(date -u +%s)-$RANDOM"
+log() { printf '[%s] handler=review req=%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REQ_ID" "$*" | tee -a "${CT_HANDLER_LOG_DIR:-/home/becke/workflow-pipelines/.demo-checkouts/handler-logs}/review.log" >&2; }
+
+LLM_TIMEOUT="${CT_HANDLER_TIMEOUT:-30}"
 LLM="${CT_LLM_CMD:-claude}"
 IN="$(cat)"
 PROMPT="$(printf '%s' "$IN" | jq -r '.prompt // ""' 2>/dev/null)"
 RECIPE="$(printf '%s' "$IN" | jq -c '.recipe // {}' 2>/dev/null)"
+log "start prompt_len=${#PROMPT}"
+T0=$(date +%s)
 
 SYS="You are a food-safety and consistency reviewer for a finished recipe. Reason holistically about the ACTUAL recipe — do not just match keywords. REJECT if: it contains any inedible, poisonous, or unsafe-to-eat item; it contradicts a dietary constraint stated in the user's request (e.g. request says vegetarian/vegan but the recipe contains meat/fish); or the combination is genuinely implausible to eat. Otherwise ACCEPT. Respond with EXACTLY one line: 'ACCEPT: <one short reason>' or 'REJECT: <one short reason>'. Nothing else."
 
-VERDICT="$($LLM -p "User request: ${PROMPT}
+VERDICT="$(timeout "$LLM_TIMEOUT" "$LLM" -p "User request: ${PROMPT}
 Recipe to review (JSON): ${RECIPE}" --output-format text \
   --disallowedTools "Edit,Write,Bash,Read,WebFetch,WebSearch,Agent" \
-  --append-system-prompt "$SYS" 2>/dev/null)" || VERDICT=""
+  --append-system-prompt "$SYS" 2>/dev/null)"
+LLM_STATUS=$?
+[ $LLM_STATUS -eq 124 ] && log "warn llm_timeout after=${LLM_TIMEOUT}s"
 
 json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\r' '  '; }
 
@@ -33,11 +41,14 @@ json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\r' '  '
 # noise. Take the LAST ACCEPT:/REJECT: occurring anywhere in the response instead, since a
 # self-correction is by construction the model's final, considered verdict.
 LAST_VERDICT="$(printf '%s' "$VERDICT" | grep -oiE '(ACCEPT|REJECT):' | tail -1 | tr '[:upper:]' '[:lower:]')"
+DUR=$(( $(date +%s) - T0 ))
 if [ "$LAST_VERDICT" = "accept:" ]; then
   REASON="$(printf '%s' "$VERDICT" | sed -E 's/^.*[Aa][Cc][Cc][Ee][Pp][Tt]:[[:space:]]*//')"
+  log "done outcome=accept duration=${DUR}s"
   printf '{"ok":true,"reason":"%s"}\n' "$(json_escape "$REASON")"
 else
   REASON="$(printf '%s' "$VERDICT" | sed -E 's/^.*[Rr][Ee][Jj][Ee][Cc][Tt]:[[:space:]]*//')"
   [ -n "$REASON" ] || REASON="the recipe could not be safety-reviewed"
+  log "done outcome=reject duration=${DUR}s llm_status=${LLM_STATUS}"
   printf '{"ok":false,"reason":"%s"}\n' "$(json_escape "$REASON")"
 fi

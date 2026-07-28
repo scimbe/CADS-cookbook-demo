@@ -141,6 +141,6 @@ async function collect(safety, structureCmds, presentation, review) {
   const fakeRes = {
     write(s) { chunks.push(s); return true; },
   };
-  await mod.runCookbookStreaming("test prompt", null, "en", safety, structureCmds, presentation, review, fakeRes);
+  await mod.runCookbookStreaming("test prompt", null, "en", "standard", safety, structureCmds, presentation, review, fakeRes);
   return chunks.join("").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
 }

@@ -30,22 +30,40 @@ if [ "${1:-}" = "--selftest" ]; then
   echo "SELFTEST OK (#204): multi-line/fenced JSON extraction recovers a valid object"
   exit 0
 fi
+REQ_ID="$$-$(date -u +%s)-$RANDOM"
+log() { printf '[%s] handler=presentation req=%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REQ_ID" "$*" | tee -a "${CT_HANDLER_LOG_DIR:-/home/becke/workflow-pipelines/.demo-checkouts/handler-logs}/presentation.log" >&2; }
+
+LLM_TIMEOUT="${CT_HANDLER_TIMEOUT:-45}"
 LLM="${CT_LLM_CMD:-claude}"
 IN="$(cat)"
 PROMPT="$(printf '%s' "$IN" | jq -r '.prompt // ""' 2>/dev/null)"
 STRUCTURE="$(printf '%s' "$IN" | jq -c '.structure // {}' 2>/dev/null)"
 RLANG="$(printf '%s' "$IN" | jq -r '.lang // "en"' 2>/dev/null)"   # #201 i18n: output language
+COMPLEXITY="$(printf '%s' "$IN" | jq -r '.complexity // "standard"' 2>/dev/null)"
+log "start prompt_len=${#PROMPT} complexity=$COMPLEXITY"
+T0=$(date +%s)
 
-SYS="You are the recipe-presentation agent. Given the user's request and the structured recipe (ingredients + steps) as JSON context, output ONLY a compact JSON object, no prose, with EXACTLY: dishName (a short, appetising on-topic name, <= 40 chars), theme (one word mood, e.g. rustic/fresh/cozy/elegant), garnish (a short finishing touch), moodDescription (one short sentence about the vibe). Match the actual recipe. Respond with the JSON object and nothing else."
+SYS="You are the recipe-presentation agent. Given the user's request and the structured recipe (ingredients + steps) as JSON context, output ONLY a compact JSON object, no prose, with EXACTLY: dishName (a short, appetising on-topic name, <= 40 chars), theme (one word mood, e.g. rustic/fresh/cozy/elegant), garnish (a short finishing touch), moodDescription (one short sentence about the vibe). The dishName, garnish and moodDescription MUST be driven directly by the actual ingredients/steps array given to you — name the dish after its real, distinguishing ingredients (not a generic name unrelated to what's actually in it), pick a garnish that plausibly complements those specific ingredients, and never invent or imply an ingredient that is not present in the given structure. Respond with the JSON object and nothing else."
 
-OUT="$($LLM -p "Request: ${PROMPT}
+case "$COMPLEXITY" in
+  simple) COMPLEXITY_TONE=" Keep the naming humble and homely (this is a quick, simple dish)." ;;
+  elaborate) COMPLEXITY_TONE=" The naming can be more refined/restaurant-style (this is a more elaborate dish)." ;;
+  *) COMPLEXITY_TONE="" ;;
+esac
+
+OUT="$(timeout "$LLM_TIMEOUT" "$LLM" -p "Request: ${PROMPT}
 Recipe (JSON): ${STRUCTURE}" --output-format text \
   --disallowedTools "Edit,Write,Bash,Read,WebFetch,WebSearch,Agent" \
-  --append-system-prompt "$SYS Write the dishName, garnish and moodDescription in this language: $RLANG (theme stays a single English mood word). Only values are translated, not the JSON keys." 2>/dev/null)" || OUT=""
+  --append-system-prompt "$SYS Write the dishName, garnish and moodDescription in this language: $RLANG (theme stays a single English mood word). Only values are translated, not the JSON keys.$COMPLEXITY_TONE" 2>/dev/null)"
+LLM_STATUS=$?
+[ $LLM_STATUS -eq 124 ] && log "warn llm_timeout after=${LLM_TIMEOUT}s"
 
 JSON="$(printf '%s' "$OUT" | extract_json_object)"
+DUR=$(( $(date +%s) - T0 ))
 if printf '%s' "$JSON" | grep -q '"dishName"'; then
+  log "done outcome=ok duration=${DUR}s"
   printf '%s\n' "$JSON"
 else
+  log "done outcome=fallback duration=${DUR}s llm_status=${LLM_STATUS}"
   printf '{"dishName":"House Special","theme":"rustic","garnish":"a sprig of fresh herbs","moodDescription":"a simple, comforting plate."}\n'
 fi

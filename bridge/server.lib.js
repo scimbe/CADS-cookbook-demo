@@ -25,10 +25,10 @@
  * generic/CLI-driven and needed zero core changes to move here.
  *
  * Env:
- *   COOKBOOK_SAFETY_CMD       - stdin=prompt -> stdout {"ok":bool,"reason":str}
- *   COOKBOOK_STRUCTURE_CMD    - stdin={prompt,image,lang} -> stdout {ingredients,steps,cookTime,difficulty,allergens}
+ *   COOKBOOK_SAFETY_CMD       - stdin={prompt,image} -> stdout {"ok":bool,"reason":str}
+ *   COOKBOOK_STRUCTURE_CMD    - stdin={prompt,image,lang,complexity} -> stdout {ingredients,steps,cookTime,difficulty,allergens}
  *   COOKBOOK_STRUCTURE_CMD_2, _3, ... - ordered failover candidates (#207 Slice A), contiguous from _2
- *   COOKBOOK_PRESENTATION_CMD - stdin={prompt,structure,lang} -> stdout {dishName,theme,garnish,moodDescription}
+ *   COOKBOOK_PRESENTATION_CMD - stdin={prompt,structure,lang,complexity} -> stdout {dishName,theme,garnish,moodDescription}
  *   COOKBOOK_REVIEW_CMD       - stdin={prompt,recipe} -> stdout {"ok":bool,"reason":str}
  *   COOKBOOK_BRIDGE_LISTEN    - default 0.0.0.0:8789
  *
@@ -89,10 +89,30 @@ function runCmd(cmd, input, timeoutMs = ROLE_CMD_TIMEOUT_MS) {
   });
 }
 
-/** Up to `maxAttempts` tries on failure. */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Up to `maxAttempts` tries on failure, with exponential backoff + jitter between them.
+ *
+ * Each role's serve process only admits ONE session at a time — a second concurrent dial to the
+ * SAME role while the first is still being served gets rejected at the admission layer ("edge
+ * relay refused the channel join", "channel join admission exchange stalled (#140)", "early eof"),
+ * not queued. A short FIXED backoff (an earlier version of this fix, 150-450ms) only clears a
+ * momentary relay race — it doesn't help here, because the peer stays busy for a whole claude -p
+ * call (commonly 5-20s), so a contending request would exhaust a sub-second retry budget long
+ * before the first request finishes and frees the slot. Confirmed via real concurrent load on the
+ * sibling flappy-demo bridge (identical architecture): exponential backoff, capped and given
+ * enough attempts to plausibly outlast one other concurrent call, is the actual fix.
+ */
 async function runCmdWithRetries(cmd, input, maxAttempts) {
+  const BASE_MS = 500;
+  const CAP_MS = 4000;
   let lastErr = new Error("no attempts made");
   for (let i = 0; i < Math.max(maxAttempts, 1); i++) {
+    if (i > 0) {
+      const delay = Math.min(CAP_MS, BASE_MS * 2 ** (i - 1));
+      await sleep(delay + Math.floor(Math.random() * delay * 0.5));
+    }
     try {
       return await runCmd(cmd, input);
     } catch (e) {
@@ -102,22 +122,23 @@ async function runCmdWithRetries(cmd, input, maxAttempts) {
   throw lastErr;
 }
 
-/** 3 total attempts - the default for a role with no configured standby. */
+/** 5 total attempts (~500ms/1s/2s/4s backoff between them) - the default for a role with no
+ * configured standby; sized to plausibly outlast one other concurrent caller on the same role. */
 function runCmdAsync(cmd, input) {
-  return runCmdWithRetries(cmd, input, 3);
+  return runCmdWithRetries(cmd, input, 5);
 }
 
 /**
  * #207 Slice A - ordered-candidate failover: try candidates in order, first success wins.
  * Non-last candidates get exactly 1 attempt (fail fast, fall through); the LAST candidate gets
- * the full 3 attempts (nowhere further to go, worth paying the retry cost). Returns
+ * the full backoff-retry budget (nowhere further to go, worth paying the retry cost). Returns
  * [output, winningIndex] so the caller can report who actually served the request.
  */
 async function runWithFallbacks(candidates, input) {
   const lastIndex = candidates.length - 1;
   let lastErr = new Error("no role command configured");
   for (let i = 0; i < candidates.length; i++) {
-    const attempts = i === lastIndex ? 3 : 1;
+    const attempts = i === lastIndex ? 5 : 1;
     try {
       const out = await runCmdWithRetries(candidates[i], input, attempts);
       return [out, i];
@@ -194,12 +215,13 @@ function emit(res, ev) {
  * Drive the recipe crew safety -> structure -> presentation -> assemble -> review, streaming one
  * event per step. Terminal event is exactly one of built/rejected/error.
  */
-async function runCookbookStreaming(prompt, image, lang, safetyCmd, structureCmds, presentationCmd, reviewCmd, res) {
-  // 1. safety_check — text-only for v1 (image moderation is a fast-follow).
+async function runCookbookStreaming(prompt, image, lang, complexity, safetyCmd, structureCmds, presentationCmd, reviewCmd, res) {
+  // 1. safety_check — #201 fast-follow: classifies BOTH the text and the uploaded photo (if any)
+  // in this one call, so image moderation doesn't add a second sequential round-trip.
   emit(res, { stage: "safety", status: "start" });
   let safetyOut;
   try {
-    safetyOut = await runCmdAsync(safetyCmd, prompt);
+    safetyOut = await runCmdAsync(safetyCmd, JSON.stringify({ prompt, image: image ?? null }));
   } catch (e) {
     return emit(res, { stage: "error", message: `safety_check unreachable: ${e.message}` });
   }
@@ -218,7 +240,7 @@ async function runCookbookStreaming(prompt, image, lang, safetyCmd, structureCmd
   // 2. structure (source-2) — the photo bytes travel over the channel as base64 in the JSON the
   //    role receives; source-2's handler decodes it to a local temp file for its own claude -p.
   emit(res, { stage: "structure", status: "start" });
-  const structureInput = JSON.stringify({ prompt, image: image ?? null, lang });
+  const structureInput = JSON.stringify({ prompt, image: image ?? null, lang, complexity });
   let structureOut;
   let structureWinner;
   try {
@@ -237,7 +259,7 @@ async function runCookbookStreaming(prompt, image, lang, safetyCmd, structureCmd
   } catch {
     structureVal = null;
   }
-  const presentationInput = JSON.stringify({ prompt, structure: structureVal, lang });
+  const presentationInput = JSON.stringify({ prompt, structure: structureVal, lang, complexity });
   let presentationOut;
   try {
     presentationOut = await runCmdAsync(presentationCmd, presentationInput);
@@ -319,6 +341,7 @@ async function buildHandler(req, res) {
   }
   const image = typeof body.image === "string" ? body.image : null;
   const lang = typeof body.lang === "string" && body.lang ? body.lang : "en";
+  const complexity = ["simple", "standard", "elaborate"].includes(body.complexity) ? body.complexity : "standard";
   const safetyCmd = process.env.COOKBOOK_SAFETY_CMD;
   const structureCmd = process.env.COOKBOOK_STRUCTURE_CMD;
   const presentationCmd = process.env.COOKBOOK_PRESENTATION_CMD;
@@ -336,7 +359,7 @@ async function buildHandler(req, res) {
     "cache-control": "no-store",
   });
   try {
-    await runCookbookStreaming(prompt, image, lang, safetyCmd, structureCmds, presentationCmd, reviewCmd, res);
+    await runCookbookStreaming(prompt, image, lang, complexity, safetyCmd, structureCmds, presentationCmd, reviewCmd, res);
   } catch (e) {
     // Defensive: runCookbookStreaming should never throw (every branch returns after emit()), but
     // don't let an unexpected bug hang the response open.

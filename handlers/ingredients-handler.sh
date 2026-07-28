@@ -41,16 +41,27 @@ if [ "${1:-}" = "--selftest" ]; then
   echo "SELFTEST OK (#204 extraction + #205 infer-from-dish directive present)"
   exit 0
 fi
+REQ_ID="$$-$(date -u +%s)-$RANDOM"
+log() { printf '[%s] handler=structure req=%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REQ_ID" "$*" | tee -a "${CT_HANDLER_LOG_DIR:-/home/becke/workflow-pipelines/.demo-checkouts/handler-logs}/structure.log" >&2; }
+
+LLM_TIMEOUT="${CT_HANDLER_TIMEOUT:-45}"
 LLM="${CT_LLM_CMD:-claude}"
 IN="$(cat)"
 PROMPT="$(printf '%s' "$IN" | jq -r '.prompt // ""' 2>/dev/null)"
 IMG_B64="$(printf '%s' "$IN" | jq -r '.image // empty' 2>/dev/null)"
 RLANG="$(printf '%s' "$IN" | jq -r '.lang // "en"' 2>/dev/null)"   # #201 i18n: output language
+COMPLEXITY="$(printf '%s' "$IN" | jq -r '.complexity // "standard"' 2>/dev/null)"
+log "start prompt_len=${#PROMPT} has_image=$([ -n "$IMG_B64" ] && echo yes || echo no) complexity=$COMPLEXITY"
+T0=$(date +%s)
 
 IMG_NOTE=""
 IMG_FILE=""
+# Already per-invocation-unique (mktemp, not a fixed path) — safe under concurrency. Adding a
+# trap so the file is removed even if this handler is killed by the timeout below or by the
+# server terminating the session mid-call, not just on the normal exit path.
 if [ -n "$IMG_B64" ]; then
   IMG_FILE="$(mktemp "${TMPDIR:-/tmp}/cookbook-XXXXXX.img")"
+  trap '[ -n "$IMG_FILE" ] && rm -f "$IMG_FILE"' EXIT INT TERM
   if printf '%s' "$IMG_B64" | base64 -d > "$IMG_FILE" 2>/dev/null && [ -s "$IMG_FILE" ]; then
     IMG_NOTE="A photo of the available ingredients is saved locally at: $IMG_FILE — look at it and identify what's actually there. "
   else
@@ -58,19 +69,30 @@ if [ -n "$IMG_B64" ]; then
   fi
 fi
 
-SYS="You are the recipe-structure agent. From the user's text and (if given) the ingredient photo, output ONLY a compact JSON object, no prose, with EXACTLY these keys: ingredients (array of strings), steps (array of strings, in order), cookTime (a string like '30 minutes'), difficulty (one of: easy, medium, hard), allergens (array of strings; [] if none). Derive the ingredients from BOTH the photo (if given) and the text. IMPORTANT (#205): if the text names a DISH or any ingredients — even with NO photo (e.g. 'Eier mit Senfsoße'/'eggs in mustard sauce', 'spaghetti carbonara', 'a quick omelette') — INFER the ingredients that dish needs and build the recipe from those. A photo is NOT required to recognize a named dish or ingredients; treat the dish name itself as the ingredient source. ONLY return the safe pantry fallback dish (and say so in the first step) if the text is genuinely empty or unusable AND no photo was given — NEVER fall back merely because no photo was attached, or because the text names a dish rather than listing raw ingredients. Never include inedible or unsafe items. Respond with the JSON object and nothing else."
+case "$COMPLEXITY" in
+  simple) COMPLEXITY_NOTE="The user asked for a QUICK & SIMPLE recipe: keep the ingredients list short (use only what's needed), keep steps to the essential minimum (aim for 3-5 short steps), and favor easy/fast preparation." ;;
+  elaborate) COMPLEXITY_NOTE="The user asked for a MORE ELABORATE recipe: it's fine to use more ingredients and more involved techniques, and to break the process into more, more detailed steps." ;;
+  *) COMPLEXITY_NOTE="" ;;
+esac
+
+SYS="You are the recipe-structure agent. From the user's text and (if given) the ingredient photo, output ONLY a compact JSON object, no prose, with EXACTLY these keys: ingredients (array of strings), steps (array of strings, in order), cookTime (a string like '30 minutes'), difficulty (one of: easy, medium, hard), allergens (array of strings; [] if none). Derive the ingredients from BOTH the photo (if given) and the text. IMPORTANT (#205): if the text names a DISH or any ingredients — even with NO photo (e.g. 'Eier mit Senfsoße'/'eggs in mustard sauce', 'spaghetti carbonara', 'a quick omelette') — INFER the ingredients that dish needs and build the recipe from those. A photo is NOT required to recognize a named dish or ingredients; treat the dish name itself as the ingredient source. ONLY return the safe pantry fallback dish (and say so in the first step) if the text is genuinely empty or unusable AND no photo was given — NEVER fall back merely because no photo was attached, or because the text names a dish rather than listing raw ingredients. Never include inedible or unsafe items. If a photo was given but you cannot actually open/view it for any technical reason, do NOT speculate about permissions/access in your output — just note plainly in the first step that the photo couldn't be used and fall back to the text (or the pantry default if the text is also unusable). $COMPLEXITY_NOTE Respond with the JSON object and nothing else."
 
 # Read is allowed here (the image); write/exec/network tools are not.
-OUT="$($LLM -p "${IMG_NOTE}${PROMPT}" --output-format text \
+OUT="$(timeout "$LLM_TIMEOUT" "$LLM" -p "${IMG_NOTE}${PROMPT}" --output-format text \
   --disallowedTools "Edit,Write,Bash,WebFetch,WebSearch,Agent" \
-  --append-system-prompt "$SYS Write ALL output text (ingredient names, steps, etc.) in this language: $RLANG. The JSON keys stay in English; only the values are translated." 2>/dev/null)" || OUT=""
+  --append-system-prompt "$SYS Write ALL output text (ingredient names, steps, etc.) in this language: $RLANG. The JSON keys stay in English; only the values are translated." 2>/dev/null)"
+LLM_STATUS=$?
+[ $LLM_STATUS -eq 124 ] && log "warn llm_timeout after=${LLM_TIMEOUT}s"
 [ -n "$IMG_FILE" ] && rm -f "$IMG_FILE"
 
 JSON="$(printf '%s' "$OUT" | extract_json_object)"
+DUR=$(( $(date +%s) - T0 ))
 if printf '%s' "$JSON" | grep -q '"ingredients"'; then
+  log "done outcome=ok duration=${DUR}s"
   printf '%s\n' "$JSON"
 else
   # FALLBACK (#201 error-handling): the LLM failed or recognized nothing — a safe pantry default,
   # not an error, so the customer still gets a usable recipe.
+  log "done outcome=fallback duration=${DUR}s llm_status=${LLM_STATUS}"
   printf '{"ingredients":["pasta","olive oil","garlic","salt"],"steps":["We could not read specific ingredients, so here is a reliable pantry dish.","Boil the pasta until al dente","Warm the olive oil with sliced garlic, toss and season"],"cookTime":"15 minutes","difficulty":"easy","allergens":["gluten"]}\n'
 fi

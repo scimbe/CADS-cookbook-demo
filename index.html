@@ -29,7 +29,14 @@
   .member.done .tick::after { content:"✓"; color:var(--ok); }
   .bar { height:6px; background:#0e0c0a; border-radius:6px; overflow:hidden; margin:10px 0; }
   .barfill { height:100%; width:0; background:var(--accent); transition:width .3s; }
-  .bstep { color:var(--muted); font-size:.9rem; min-height:1.2em; }
+  .bstep { color:var(--muted); font-size:.9rem; min-height:1.2em; display:flex; align-items:center; gap:8px; }
+  /* continuously-animated loading indicator: a real user sees THIS moving throughout the whole
+     build, not just the stepwise bar/text (those only change on each NDJSON stage event, which
+     can be 10-20s apart per role — a static gap there reads as "is this stuck?"). */
+  .spinner { width:16px; height:16px; border-radius:50%; border:2px solid var(--edge); border-top-color:var(--accent); animation:spin .8s linear infinite; flex:0 0 auto; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .complexrow { display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap; }
+  select#complexity { background:#0e0c0a; color:var(--ink); border:1px solid var(--edge); border-radius:10px; padding:8px 10px; font:inherit; }
   /* recipe card */
   #card { display:none; }
   .dish { font-size:1.5rem; font-weight:800; }
@@ -78,6 +85,14 @@
       <img id="thumb" alt="ingredient photo">
       <button class="btn" id="clearPhoto" style="display:none">✕ remove</button>
     </div>
+    <div class="complexrow">
+      <label for="complexity" class="sub" data-i18n="complexity_label">Recipe style:</label>
+      <select id="complexity">
+        <option value="simple" data-i18n="complexity_simple">Quick &amp; simple</option>
+        <option value="standard" selected data-i18n="complexity_standard">Standard</option>
+        <option value="elaborate" data-i18n="complexity_elaborate">More elaborate</option>
+      </select>
+    </div>
     <button class="btn accent" id="buildBtn" style="margin-top:12px" data-i18n="cook">🍳 Cook up a recipe</button>
     <div id="promptMsg" class="pmsg"></div>
   </div>
@@ -92,7 +107,7 @@
       <div class="member" data-role="review"><span class="tick"></span> 🧪 review</div>
     </div>
     <div class="bar"><div id="buildBar" class="barfill"></div></div>
-    <div id="buildStep" class="bstep">…</div>
+    <div id="buildStep" class="bstep"><span class="spinner"></span><span id="buildStepText">…</span></div>
   </div>
 
   <!-- recipe card output -->
@@ -138,6 +153,10 @@ const STRINGS = {
     info: "ⓘ Info",
     prompt_ph: "e.g. I have eggs, spinach and feta — something quick and vegetarian",
     addphoto: "📷 Add a photo — camera or gallery",
+    complexity_label: "Recipe style:",
+    complexity_simple: "Quick & simple",
+    complexity_standard: "Standard",
+    complexity_elaborate: "More elaborate",
     cook: "🍳 Cook up a recipe",
     cooking: "The crew is cooking…",
     ingredients: "Ingredients",
@@ -154,6 +173,10 @@ const STRINGS = {
     info: "ⓘ Info",
     prompt_ph: "z. B. Ich habe Eier, Spinat und Feta — etwas Schnelles, Vegetarisches",
     addphoto: "📷 Foto hinzufügen — Kamera oder Galerie",
+    complexity_label: "Rezeptstil:",
+    complexity_simple: "Schnell & einfach",
+    complexity_standard: "Standard",
+    complexity_elaborate: "Aufwendiger",
     cook: "🍳 Rezept kochen",
     cooking: "Die Crew kocht…",
     ingredients: "Zutaten",
@@ -238,7 +261,7 @@ $("clearPhoto").addEventListener("click", () => {
 // per-stage events, so the crew screen updates live. Configurable via an untracked crew.json.
 let CREW_URL = "cookbook/build";
 fetch("crew.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.url) CREW_URL = j.url; }).catch(() => {});
-async function liveBuildStream(prompt, image, onEvent) {
+async function liveBuildStream(prompt, image, complexity, onEvent) {
   const ctrl = new AbortController();
   // 4 sequential LLM calls (safety + structure + presentation + review ≈ 4×~14s ≈ 55s), PLUS each
   // role now retries up to 3 total attempts on a transient dial race (#148/#140 — a live-observed
@@ -246,7 +269,7 @@ async function liveBuildStream(prompt, image, onEvent) {
   // above that, not just the happy-path ~55s.
   const to = setTimeout(() => ctrl.abort(), 150000);
   try {
-    const res = await fetch(CREW_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt, image, lang: curLang }), signal: ctrl.signal });
+    const res = await fetch(CREW_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt, image, lang: curLang, complexity }), signal: ctrl.signal });
     if (!res.ok || !res.body) throw new Error("cookbook bridge " + res.status);
     const reader = res.body.getReader(); const dec = new TextDecoder();
     let buf = "", terminal = null;
@@ -291,7 +314,7 @@ $("buildBtn").addEventListener("click", async () => {
   $("card").style.display = "none";
   // immediate feedback: show the crew screen the instant the button is clicked.
   document.querySelectorAll(".crew .member").forEach((m) => m.classList.remove("active", "done"));
-  $("buildBar").style.width = "0%"; $("buildStep").textContent = "🛰 Reaching the recipe crew over the tunnel…";
+  $("buildBar").style.width = "0%"; $("buildStepText").textContent = "🛰 Reaching the recipe crew over the tunnel…";
   $("build").style.display = "block";
   const hide = () => { $("build").style.display = "none"; };
   const bar = { safety: 20, structure: 55, presentation: 80, review: 95 };
@@ -300,7 +323,7 @@ $("buildBtn").addEventListener("click", async () => {
     if (ev.status === "start") {
       if (m) m.classList.add("active");
       const label = { safety: "🛡️ safety agent reviewing your request…", structure: "🥕 source-2 is reading the ingredients…", presentation: "🍽️ sink is plating the dish…", review: "🧪 reviewing the finished recipe…" }[ev.stage];
-      if (label) $("buildStep").textContent = label;
+      if (label) $("buildStepText").textContent = label;
     } else if (ev.status === "ok" || ev.status === "done") {
       if (m) { m.classList.remove("active"); m.classList.add("done"); }
       if (bar[ev.stage]) $("buildBar").style.width = bar[ev.stage] + "%";
@@ -308,7 +331,8 @@ $("buildBtn").addEventListener("click", async () => {
   };
   try {
     let term = null;
-    try { term = await liveBuildStream(p, imageB64, onEvent); } catch (e) { term = null; }
+    const complexity = $("complexity").value || "standard";
+    try { term = await liveBuildStream(p, imageB64, complexity, onEvent); } catch (e) { term = null; }
     if (term && term.stage === "built" && term.recipe) {
       $("buildBar").style.width = "100%"; await new Promise((r) => setTimeout(r, 350)); hide();
       renderCard(term.recipe);
