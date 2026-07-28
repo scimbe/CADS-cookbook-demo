@@ -85,6 +85,7 @@
       <img id="thumb" alt="ingredient photo">
       <button class="btn" id="clearPhoto" style="display:none">✕ remove</button>
     </div>
+    <div id="photoMsg" class="pmsg reject" style="display:none"></div>
     <div class="complexrow">
       <label for="complexity" class="sub" data-i18n="complexity_label">Recipe style:</label>
       <select id="complexity">
@@ -222,11 +223,21 @@ $("gateForm").addEventListener("submit", async (e) => {
 // Budget the image well under the ceiling: ~40KB of base64 leaves generous headroom (~25KB) for the
 // prompt text, the lang field, and JSON-in-JSON escaping/structure overhead in the same message.
 const IMAGE_B64_BUDGET = 40 * 1024;
+// Absolute floor: below this the image is too degraded to be worth sending at all — better to
+// tell the user than to ship a useless postage-stamp photo.
+const IMAGE_MIN_DIM = 160;
+const IMAGE_MIN_QUALITY = 0.2;
 function canvasToJpeg(canvas, quality) { return canvas.toDataURL("image/jpeg", quality); }
+function photoTooLargeMsg() {
+  return curLang === "de"
+    ? "Foto konnte nicht klein genug komprimiert werden — bitte ein einfacheres oder näheres Foto versuchen."
+    : "Photo could not be compressed small enough to send — try a closer or simpler shot.";
+}
 let imageB64 = null;   // base64 (no data: prefix) of a downscaled JPEG, or null
 $("photo").addEventListener("change", (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
+  $("photoMsg").style.display = "none";
   const img = new Image();
   img.onload = () => {
     let { width: w, height: h } = img;
@@ -235,26 +246,39 @@ $("photo").addEventListener("change", (e) => {
     // Iteratively shrink (dimension first, then quality) until the encoded payload actually fits
     // the transport's hard ceiling — a fixed dimension/quality pair can't guarantee that across
     // wildly different source photos (a detailed, high-contrast fridge photo encodes far larger
-    // than a plain one at the same pixel size).
-    for (let attempt = 0; attempt < 8; attempt++) {
+    // than a plain one at the same pixel size). Keeps going past the old fixed 8-attempt cap,
+    // down to a real floor, rather than silently shipping whatever the last attempt produced even
+    // if it never actually got under budget (#211-adjacent: the channel's 64KB message ceiling has
+    // no graceful-rejection path, so an oversized payload here becomes a cryptic transport error).
+    let fits = false;
+    for (let attempt = 0; attempt < 24; attempt++) {
       let cw = w, ch = h;
       if (cw > dim || ch > dim) { const s = dim / Math.max(cw, ch); cw = Math.round(cw * s); ch = Math.round(ch * s); }
       c.width = cw; c.height = ch;
       c.getContext("2d").drawImage(img, 0, 0, cw, ch);
       url = canvasToJpeg(c, quality);
-      if ((url.length * 3 / 4) <= IMAGE_B64_BUDGET) break;
-      // Alternate: cut quality first (cheap, preserves framing), then fall back to shrinking
-      // dimensions once quality is already low, so a big/detailed photo still converges.
-      if (quality > 0.35) quality -= 0.15; else dim = Math.round(dim * 0.75);
+      if ((url.length * 3 / 4) <= IMAGE_B64_BUDGET) { fits = true; break; }
+      if (quality > IMAGE_MIN_QUALITY) quality -= 0.1;
+      else if (dim > IMAGE_MIN_DIM) dim = Math.max(IMAGE_MIN_DIM, Math.round(dim * 0.8));
+      else break;   // at the floor on both axes — stop, don't loop forever
+    }
+    URL.revokeObjectURL(img.src);
+    if (!fits) {
+      imageB64 = null;
+      $("photo").value = "";
+      $("thumb").style.display = "none"; $("clearPhoto").style.display = "none";
+      $("photoMsg").textContent = photoTooLargeMsg();
+      $("photoMsg").style.display = "block";
+      return;
     }
     imageB64 = url.split(",")[1] || null;
     $("thumb").src = url; $("thumb").style.display = "inline-block"; $("clearPhoto").style.display = "inline-block";
-    URL.revokeObjectURL(img.src);
   };
   img.src = URL.createObjectURL(file);
 });
 $("clearPhoto").addEventListener("click", () => {
   imageB64 = null; $("photo").value = ""; $("thumb").style.display = "none"; $("clearPhoto").style.display = "none";
+  $("photoMsg").style.display = "none";
 });
 
 // ---- live crew bridge (#201): the browser POSTs {prompt, image?} and reads a stream of NDJSON
