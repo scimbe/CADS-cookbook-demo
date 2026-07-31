@@ -3,56 +3,95 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Cookbook — recipe from your fridge</title>
 <style>
-  :root { --bg:#12100e; --panel:#1c1815; --edge:#3a322b; --ink:#f4ede2; --muted:#b3a596; --accent:#e8842b; --ok:#5cbf6a; --bad:#e2603b; }
+  /* ---- palette lifted from bunsenbrenner.org (the core CADS-Tunnel site) so this pipeline
+     demo reads as part of the same family: navy/panel darks, warm amber "flame" accent,
+     teal "live" accent, serif display headings + monospace labels. ---- */
+  :root {
+    --bg: #0c111d; --panel: #141b2c; --panel2: #1a2338; --edge: #2a3450; --line-soft: #212a41;
+    --ink: #eef1f7; --muted: #8a93ad; --muted2: #c3c9db;
+    --accent: #d98a4f; --accent-soft: #a8683a; --ok: #5fb8ab; --bad: #e5654f;
+    --mono: ui-monospace,SFMono-Regular,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+    --serif: ui-serif,Georgia,"Iowan Old Style","Palatino Linotype",serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f7fb; --panel: #ffffff; --panel2: #eef1f8; --edge: #d7deec; --line-soft: #e3e8f3;
+      --ink: #131a2c; --muted: #5b6478; --muted2: #333d54;
+      --accent: #b8672f; --accent-soft: #8f4f24; --ok: #2f8a7d; --bad: #c94a34;
+    }
+  }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,sans-serif; line-height:1.4; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; line-height:1.45; -webkit-font-smoothing:antialiased; }
+  h1, h2 { font-family:var(--serif); letter-spacing:-.01em; }
+  code { font-family:var(--mono); }
   .wrap { max-width:640px; margin:0 auto; padding:16px; }
-  h1 { font-size:1.4rem; margin:.2rem 0; } h2 { font-size:1.05rem; margin:.2rem 0 .6rem; }
-  .sub { color:var(--muted); font-size:.9rem; }
-  .panel { background:var(--panel); border:1px solid var(--edge); border-radius:14px; padding:14px; margin:12px 0; }
-  textarea, input[type=text], input[type=password] { width:100%; background:#0e0c0a; color:var(--ink); border:1px solid var(--edge); border-radius:10px; padding:10px; font:inherit; }
-  .btn { display:inline-block; border:0; border-radius:10px; padding:12px 16px; font-weight:700; font:inherit; cursor:pointer; background:#2a2521; color:var(--ink); }
-  .btn.accent { background:var(--accent); color:#241200; width:100%; font-size:1.05rem; }
-  .btn:disabled { opacity:.5; }
+  h1 { font-size:1.5rem; margin:.2rem 0; display:flex; align-items:center; gap:.5rem; }
+  h1 .flame { width:32px; height:32px; border-radius:50%; flex-shrink:0; font-size:16px; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 35% 30%, var(--accent), var(--accent-soft)); box-shadow:0 0 0 4px rgba(217,138,79,.16); }
+  h2 { font-size:1.05rem; margin:.2rem 0 .6rem; display:flex; align-items:center; gap:.5rem; }
+  h2::before { content:""; width:1.1rem; height:1px; background:var(--ok); flex-shrink:0; }
+  .sub { color:var(--muted2); font-size:.9rem; }
+  .panel { background:var(--panel); border:1px solid var(--edge); border-radius:14px; padding:16px; margin:12px 0; }
+  textarea, input[type=text], input[type=password] { width:100%; background:var(--bg); color:var(--ink); border:1px solid var(--edge); border-radius:10px; padding:10px; font:inherit; }
+  textarea:focus, input:focus, select:focus { outline:none; border-color:var(--ok); }
+  .btn { display:inline-block; border:1px solid var(--edge); border-radius:10px; padding:12px 16px; font-weight:700; font:inherit; cursor:pointer; background:var(--panel2); color:var(--ink); transition:filter .15s ease, transform .15s ease, border-color .15s ease; }
+  .btn:hover { transform:translateY(-1px); border-color:var(--muted); }
+  .btn.accent { background:var(--accent); color:#20130a; width:100%; font-size:1.05rem; border-color:transparent; }
+  .btn.accent:hover { filter:brightness(1.08); }
+  .btn:disabled { opacity:.5; transform:none; }
+  .btn.lang { padding:6px 10px; font-size:.8rem; font-weight:600; }
+  .btn.lang.accent { width:auto; }
+  footer.support { text-align:center; padding:22px 14px 30px; color:var(--muted); font-size:.85rem; border-top:1px solid var(--edge); margin-top:20px; }
+  footer.support a { color:var(--muted); text-decoration:none; margin:0 8px; }
+  footer.support a:hover { color:var(--ink); }
   .imgrow { display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap:wrap; }
-  label.file { display:inline-block; background:#2a2521; border:1px solid var(--edge); border-radius:10px; padding:10px 14px; cursor:pointer; }
+  label.file { display:inline-block; background:var(--panel2); border:1px solid var(--edge); border-radius:10px; padding:10px 14px; cursor:pointer; transition:border-color .15s ease; }
+  label.file:hover { border-color:var(--muted); }
   #thumb { width:64px; height:64px; object-fit:cover; border-radius:10px; border:1px solid var(--edge); display:none; }
   .pmsg { margin-top:10px; font-size:.92rem; min-height:1.2em; }
   .pmsg.ok { color:var(--ok); } .pmsg.reject { color:var(--bad); }
+
   /* crew waiting screen */
   #build { display:none; }
+  .flow-card { border:1px solid var(--edge); border-radius:12px; background:var(--bg); overflow:hidden; margin-bottom:12px; }
+  .flow-head { display:flex; justify-content:space-between; align-items:center; padding:.55rem .8rem;
+    border-bottom:1px solid var(--edge); font-family:var(--mono); font-size:.62rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  canvas#flow { display:block; width:100%; height:96px; }
   .crew { display:flex; gap:8px; flex-wrap:wrap; }
-  .member { flex:1 1 46%; background:#0e0c0a; border:1px solid var(--edge); border-radius:10px; padding:8px 10px; font-size:.9rem; opacity:.5; transition:opacity .2s; }
+  .member { flex:1 1 46%; background:var(--bg); border:1px solid var(--edge); border-radius:10px; padding:8px 10px; font-size:.9rem; opacity:.5; transition:opacity .2s, border-color .2s; position:relative; }
   .member.active { opacity:1; border-color:var(--accent); }
+  .member.active .ping { position:absolute; top:6px; right:8px; width:6px; height:6px; border-radius:50%; background:var(--accent); animation:pulse 1.1s ease-in-out infinite; }
   .member.done { opacity:1; border-color:var(--ok); }
   .member .tick::after { content:"•"; color:var(--muted); }
   .member.done .tick::after { content:"✓"; color:var(--ok); }
-  .bar { height:6px; background:#0e0c0a; border-radius:6px; overflow:hidden; margin:10px 0; }
-  .barfill { height:100%; width:0; background:var(--accent); transition:width .3s; }
-  .bstep { color:var(--muted); font-size:.9rem; min-height:1.2em; display:flex; align-items:center; gap:8px; }
-  /* continuously-animated loading indicator: a real user sees THIS moving throughout the whole
-     build, not just the stepwise bar/text (those only change on each NDJSON stage event, which
-     can be 10-20s apart per role — a static gap there reads as "is this stuck?"). */
-  .spinner { width:16px; height:16px; border-radius:50%; border:2px solid var(--edge); border-top-color:var(--accent); animation:spin .8s linear infinite; flex:0 0 auto; }
-  @keyframes spin { to { transform:rotate(360deg); } }
-  .complexrow { display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap; }
-  select#complexity { background:#0e0c0a; color:var(--ink); border:1px solid var(--edge); border-radius:10px; padding:8px 10px; font:inherit; }
+  .bar { height:6px; background:var(--bg); border-radius:6px; overflow:hidden; margin:10px 0; border:1px solid var(--edge); }
+  .barfill { height:100%; width:0; background:linear-gradient(90deg, var(--accent), var(--ok)); background-size:200% 100%; transition:width .3s; animation:shimmer 1.6s linear infinite; }
+  @keyframes shimmer { 0% { background-position:200% 0 } 100% { background-position:-200% 0 } }
+  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+  @media (prefers-reduced-motion: reduce) { .barfill, .member .ping, .live-pill i { animation:none !important; } }
+  .bstep { color:var(--muted2); font-size:.9rem; min-height:1.2em; font-family:var(--mono); }
   /* recipe card */
   #card { display:none; }
-  .dish { font-size:1.5rem; font-weight:800; }
+  .dish { font-size:1.6rem; font-weight:800; font-family:var(--serif); }
   .badges { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
-  .badge { background:#0e0c0a; border:1px solid var(--edge); border-radius:20px; padding:3px 10px; font-size:.82rem; color:var(--muted); }
+  .badge { background:var(--bg); border:1px solid var(--edge); border-radius:20px; padding:3px 10px; font-size:.82rem; color:var(--muted2); }
   .badge.allergen { border-color:var(--bad); color:var(--bad); }
   ul.ings { columns:2; padding-left:18px; } ul.ings li { margin:2px 0; }
   ol.steps { padding-left:20px; } ol.steps li { margin:6px 0; }
-  .mood { color:var(--muted); font-style:italic; margin:6px 0; }
-  #gate { text-align:center; padding-top:12vh; }
+  .mood { color:var(--muted2); font-style:italic; margin:6px 0; }
+  #gate { text-align:center; padding-top:10vh;
+    background-image: linear-gradient(var(--line-soft) 1px, transparent 1px), linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+    background-size: 30px 30px; min-height:100vh; }
+  .live-pill { display:inline-flex; align-items:center; gap:.35rem; font-family:var(--mono); font-size:.62rem;
+    text-transform:uppercase; letter-spacing:.06em; color:var(--ok); border:1px solid var(--edge);
+    border-radius:20px; padding:.25rem .55rem .25rem .5rem; }
+  .live-pill i { width:5px; height:5px; border-radius:50%; background:currentColor; display:inline-block; font-style:normal; animation:pulse 1.6s ease-in-out infinite; }
 </style></head>
 <body>
 
 <!-- ===== password gate ===== -->
 <div id="gate" class="wrap">
-  <h1 data-i18n="brand">🍳 Cookbook</h1>
+  <h1 style="justify-content:center" data-i18n="brand"><span class="flame">🍳</span> <span data-i18n-text="brand2">Cookbook</span></h1>
   <p class="sub" data-i18n="gatesub">A recipe generator built live by a crew of cooperating AI agents over the tunnel.</p>
   <form id="gateForm" class="panel" style="max-width:320px;margin:16px auto">
     <input type="password" id="pw" placeholder="access password" data-i18n-ph="pw_ph" autocomplete="off">
@@ -64,15 +103,16 @@
 <!-- ===== studio ===== -->
 <div id="studio" class="wrap" style="display:none">
   <header style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap">
-    <div><h1 data-i18n="brand">🍳 Cookbook</h1><div class="sub" data-i18n="sub">Describe what's in your fridge — the crew designs a recipe.</div></div>
+    <div><h1 data-i18n="brand"><span class="flame">🍳</span> <span data-i18n-text="brand2">Cookbook</span></h1><div class="sub" data-i18n="sub">Describe what's in your fridge — the crew designs a recipe.</div></div>
     <div style="display:flex;gap:6px;align-items:center">
+      <span class="live-pill"><i></i> live crew</span>
       <button class="btn lang" id="langEn">EN</button><button class="btn lang" id="langDe">DE</button>
       <button class="btn" id="infoBtn" title="How this works" data-i18n="info">ⓘ Info</button>
     </div>
   </header>
 
   <div class="panel">
-    <h2>🤖 Prompt the recipe crew</h2>
+    <h2>Prompt the recipe crew</h2>
     <textarea id="prompt" rows="3" maxlength="600" data-i18n-ph="prompt_ph" placeholder="e.g. I have eggs, spinach and feta — something quick and vegetarian"></textarea>
     <div class="imgrow">
       <label class="file"><span data-i18n="addphoto">📷 Add a photo — camera or gallery</span>
@@ -85,15 +125,6 @@
       <img id="thumb" alt="ingredient photo">
       <button class="btn" id="clearPhoto" style="display:none">✕ remove</button>
     </div>
-    <div id="photoMsg" class="pmsg reject" style="display:none"></div>
-    <div class="complexrow">
-      <label for="complexity" class="sub" data-i18n="complexity_label">Recipe style:</label>
-      <select id="complexity">
-        <option value="simple" data-i18n="complexity_simple">Quick &amp; simple</option>
-        <option value="standard" selected data-i18n="complexity_standard">Standard</option>
-        <option value="elaborate" data-i18n="complexity_elaborate">More elaborate</option>
-      </select>
-    </div>
     <button class="btn accent" id="buildBtn" style="margin-top:12px" data-i18n="cook">🍳 Cook up a recipe</button>
     <div id="promptMsg" class="pmsg"></div>
   </div>
@@ -101,14 +132,23 @@
   <!-- live crew screen -->
   <div class="panel" id="build">
     <h2 data-i18n="cooking">The crew is cooking…</h2>
+
+    <!-- animated pipeline-flow diagram: real build stage drives which node is "hot" and where
+         the traveling packet glows -- same technique bunsenbrenner.org uses for its own
+         network schematic, wired here to the REAL streamed build events. -->
+    <div class="flow-card">
+      <div class="flow-head"><span>agent-fabric channel · live</span><span id="flowCaption">connecting…</span></div>
+      <canvas id="flow"></canvas>
+    </div>
+
     <div class="crew">
-      <div class="member" data-role="safety"><span class="tick"></span> 🛡️ safety</div>
-      <div class="member" data-role="structure"><span class="tick"></span> 🥕 source-2 · ingredients</div>
-      <div class="member" data-role="presentation"><span class="tick"></span> 🍽️ sink · plating</div>
-      <div class="member" data-role="review"><span class="tick"></span> 🧪 review</div>
+      <div class="member" data-role="safety"><span class="ping"></span><span class="tick"></span> 🛡️ safety</div>
+      <div class="member" data-role="structure"><span class="ping"></span><span class="tick"></span> 🥕 source-2 · ingredients</div>
+      <div class="member" data-role="presentation"><span class="ping"></span><span class="tick"></span> 🍽️ sink · plating</div>
+      <div class="member" data-role="review"><span class="ping"></span><span class="tick"></span> 🧪 review</div>
     </div>
     <div class="bar"><div id="buildBar" class="barfill"></div></div>
-    <div id="buildStep" class="bstep"><span class="spinner"></span><span id="buildStepText">…</span></div>
+    <div id="buildStep" class="bstep">…</div>
   </div>
 
   <!-- recipe card output -->
@@ -123,8 +163,8 @@
 </div>
 
 <!-- ===== info modal ===== -->
-<div id="info" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;padding:16px">
-  <div class="panel" style="max-width:520px;max-height:80vh;overflow:auto">
+<div id="info" style="display:none;position:fixed;inset:0;background:rgba(4,7,13,.72);align-items:center;justify-content:center;padding:16px">
+  <div class="panel" style="max-width:520px;max-height:80vh;overflow:auto;box-shadow:0 30px 90px rgba(0,0,0,.6)">
     <h2 data-i18n="howbuilt">How this recipe is built</h2>
     <p class="sub">You give a text prompt and (optionally) a photo of your ingredients. A crew of independent AI agents, connected over the claude-tunnel Agent-Fabric, cooperate to build the recipe:</p>
     <ul class="sub">
@@ -143,10 +183,12 @@
 const $ = (id) => document.getElementById(id);
 
 // ---- i18n (#201): EN + DE. Text nodes carry data-i18n / placeholders carry data-i18n-ph;
-// the recipe LANGUAGE also travels to the crew as `lang` so the LLM writes in the chosen tongue. ----
+// the recipe LANGUAGE also travels to the crew as `lang` so the LLM writes in the chosen tongue.
+// data-i18n-text is a newer variant used inside the <h1> flame markup (same lookup table). ----
 const STRINGS = {
   en: {
     brand: "🍳 Cookbook",
+    brand2: "Cookbook",
     sub: "Describe what's in your fridge — the crew designs a recipe.",
     gatesub: "A recipe generator built live by a crew of cooperating AI agents over the tunnel.",
     pw_ph: "access password",
@@ -154,10 +196,6 @@ const STRINGS = {
     info: "ⓘ Info",
     prompt_ph: "e.g. I have eggs, spinach and feta — something quick and vegetarian",
     addphoto: "📷 Add a photo — camera or gallery",
-    complexity_label: "Recipe style:",
-    complexity_simple: "Quick & simple",
-    complexity_standard: "Standard",
-    complexity_elaborate: "More elaborate",
     cook: "🍳 Cook up a recipe",
     cooking: "The crew is cooking…",
     ingredients: "Ingredients",
@@ -167,6 +205,7 @@ const STRINGS = {
   },
   de: {
     brand: "🍳 Kochbuch",
+    brand2: "Kochbuch",
     sub: "Beschreibe, was in deinem Kühlschrank ist — die Crew entwirft ein Rezept.",
     gatesub: "Ein Rezeptgenerator, live gebaut von einer Crew kooperierender KI-Agenten über den Tunnel.",
     pw_ph: "Zugangspasswort",
@@ -174,10 +213,6 @@ const STRINGS = {
     info: "ⓘ Info",
     prompt_ph: "z. B. Ich habe Eier, Spinat und Feta — etwas Schnelles, Vegetarisches",
     addphoto: "📷 Foto hinzufügen — Kamera oder Galerie",
-    complexity_label: "Rezeptstil:",
-    complexity_simple: "Schnell & einfach",
-    complexity_standard: "Standard",
-    complexity_elaborate: "Aufwendiger",
     cook: "🍳 Rezept kochen",
     cooking: "Die Crew kocht…",
     ingredients: "Zutaten",
@@ -191,6 +226,7 @@ function applyLang(lang) {
   curLang = STRINGS[lang] ? lang : "en";
   const t = STRINGS[curLang];
   document.querySelectorAll("[data-i18n]").forEach((el) => { const k = el.getAttribute("data-i18n"); if (t[k] != null) el.textContent = t[k]; });
+  document.querySelectorAll("[data-i18n-text]").forEach((el) => { const k = el.getAttribute("data-i18n-text"); if (t[k] != null) el.textContent = t[k]; });
   document.querySelectorAll("[data-i18n-ph]").forEach((el) => { const k = el.getAttribute("data-i18n-ph"); if (t[k] != null) el.setAttribute("placeholder", t[k]); });
   document.documentElement.lang = curLang;
   const en = $("langEn"), de = $("langDe");
@@ -223,21 +259,11 @@ $("gateForm").addEventListener("submit", async (e) => {
 // Budget the image well under the ceiling: ~40KB of base64 leaves generous headroom (~25KB) for the
 // prompt text, the lang field, and JSON-in-JSON escaping/structure overhead in the same message.
 const IMAGE_B64_BUDGET = 40 * 1024;
-// Absolute floor: below this the image is too degraded to be worth sending at all — better to
-// tell the user than to ship a useless postage-stamp photo.
-const IMAGE_MIN_DIM = 160;
-const IMAGE_MIN_QUALITY = 0.2;
 function canvasToJpeg(canvas, quality) { return canvas.toDataURL("image/jpeg", quality); }
-function photoTooLargeMsg() {
-  return curLang === "de"
-    ? "Foto konnte nicht klein genug komprimiert werden — bitte ein einfacheres oder näheres Foto versuchen."
-    : "Photo could not be compressed small enough to send — try a closer or simpler shot.";
-}
 let imageB64 = null;   // base64 (no data: prefix) of a downscaled JPEG, or null
 $("photo").addEventListener("change", (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
-  $("photoMsg").style.display = "none";
   const img = new Image();
   img.onload = () => {
     let { width: w, height: h } = img;
@@ -246,46 +272,105 @@ $("photo").addEventListener("change", (e) => {
     // Iteratively shrink (dimension first, then quality) until the encoded payload actually fits
     // the transport's hard ceiling — a fixed dimension/quality pair can't guarantee that across
     // wildly different source photos (a detailed, high-contrast fridge photo encodes far larger
-    // than a plain one at the same pixel size). Keeps going past the old fixed 8-attempt cap,
-    // down to a real floor, rather than silently shipping whatever the last attempt produced even
-    // if it never actually got under budget (#211-adjacent: the channel's 64KB message ceiling has
-    // no graceful-rejection path, so an oversized payload here becomes a cryptic transport error).
-    let fits = false;
-    for (let attempt = 0; attempt < 24; attempt++) {
+    // than a plain one at the same pixel size).
+    for (let attempt = 0; attempt < 8; attempt++) {
       let cw = w, ch = h;
       if (cw > dim || ch > dim) { const s = dim / Math.max(cw, ch); cw = Math.round(cw * s); ch = Math.round(ch * s); }
       c.width = cw; c.height = ch;
       c.getContext("2d").drawImage(img, 0, 0, cw, ch);
       url = canvasToJpeg(c, quality);
-      if ((url.length * 3 / 4) <= IMAGE_B64_BUDGET) { fits = true; break; }
-      if (quality > IMAGE_MIN_QUALITY) quality -= 0.1;
-      else if (dim > IMAGE_MIN_DIM) dim = Math.max(IMAGE_MIN_DIM, Math.round(dim * 0.8));
-      else break;   // at the floor on both axes — stop, don't loop forever
-    }
-    URL.revokeObjectURL(img.src);
-    if (!fits) {
-      imageB64 = null;
-      $("photo").value = "";
-      $("thumb").style.display = "none"; $("clearPhoto").style.display = "none";
-      $("photoMsg").textContent = photoTooLargeMsg();
-      $("photoMsg").style.display = "block";
-      return;
+      if ((url.length * 3 / 4) <= IMAGE_B64_BUDGET) break;
+      // Alternate: cut quality first (cheap, preserves framing), then fall back to shrinking
+      // dimensions once quality is already low, so a big/detailed photo still converges.
+      if (quality > 0.35) quality -= 0.15; else dim = Math.round(dim * 0.75);
     }
     imageB64 = url.split(",")[1] || null;
     $("thumb").src = url; $("thumb").style.display = "inline-block"; $("clearPhoto").style.display = "inline-block";
+    URL.revokeObjectURL(img.src);
   };
   img.src = URL.createObjectURL(file);
 });
 $("clearPhoto").addEventListener("click", () => {
   imageB64 = null; $("photo").value = ""; $("thumb").style.display = "none"; $("clearPhoto").style.display = "none";
-  $("photoMsg").style.display = "none";
 });
+
+/* ============================================================================
+ * Animated pipeline-flow diagram (decorative, but state-driven): device -> the
+ * live crew roles -> your recipe, a glowing packet travels the active segment.
+ * Same canvas technique bunsenbrenner.org uses for its own network schematic,
+ * wired here to setFlowStage() calls from the real NDJSON event handler below.
+ * Respects reduced-motion (freezes on the current segment's midpoint).
+ * ==========================================================================*/
+const FLOW_LABELS = ["You", "🛡️ Safety", "🥕 Ingredients", "🍽️ Plating", "🧪 Review", "Recipe"];
+const flowReduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let flowStage = 0, flowActive = false;
+(function initFlow() {
+  const c = $("flow");
+  if (!c) return;
+  const ctx = c.getContext("2d");
+  function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function resize() {
+    const r = c.getBoundingClientRect();
+    c.width = r.width * devicePixelRatio; c.height = r.height * devicePixelRatio;
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+  let t = 0, lastW = 0, lastH = 0;
+  function draw() {
+    // #build is display:none at init, so the very first resize() saw a 0x0 rect -- the canvas
+    // stayed 0x0 forever after that (a window "resize" event never fires just from showing an
+    // overlay). Re-check every frame and only touch c.width/height (which clears the canvas) when
+    // the measured size actually changed, so the canvas is correctly sized the moment it becomes
+    // visible without wastefully resetting a canvas that hasn't changed size.
+    const rect = c.getBoundingClientRect();
+    if (rect.width !== lastW || rect.height !== lastH) { lastW = rect.width; lastH = rect.height; resize(); }
+    const r = rect, w = r.width, h = r.height;
+    ctx.clearRect(0, 0, w, h);
+    const line = cssVar("--edge"), muted = cssVar("--muted"), ink = cssVar("--ink"),
+      accent = cssVar("--accent"), ok = cssVar("--ok");
+    const n = FLOW_LABELS.length, pad = 30;
+    const xs = []; for (let i = 0; i < n; i++) xs.push(pad + (w - 2 * pad) * (i / (n - 1)));
+    const y = h / 2 - 6;
+    ctx.strokeStyle = line; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(xs[0], y); ctx.lineTo(xs[n - 1], y); ctx.stroke();
+    if (flowStage > 0) {
+      ctx.strokeStyle = ok; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(xs[0], y); ctx.lineTo(xs[Math.min(flowStage, n - 1)], y); ctx.stroke();
+    }
+    for (let i = 0; i < n; i++) {
+      const hot = i === flowStage;
+      ctx.beginPath(); ctx.arc(xs[i], y, hot ? 6 : 5, 0, Math.PI * 2);
+      ctx.fillStyle = cssVar("--panel"); ctx.fill();
+      ctx.lineWidth = hot ? 2.5 : 2;
+      ctx.strokeStyle = i <= flowStage ? ok : line;
+      ctx.stroke();
+      ctx.font = "9px " + (cssVar("--mono") || "monospace");
+      ctx.fillStyle = i <= flowStage ? ink : muted; ctx.textAlign = "center";
+      ctx.fillText(FLOW_LABELS[i], xs[i], y + 19);
+    }
+    if (flowActive && n > 1) {
+      const segFrom = Math.max(0, Math.min(flowStage, n - 2));
+      const pos = flowReduce ? 0.5 : (Math.sin(t / 26) + 1) / 2;
+      const px = xs[segFrom] + (xs[segFrom + 1] - xs[segFrom]) * pos;
+      ctx.beginPath(); ctx.arc(px, y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = accent; ctx.shadowColor = accent; ctx.shadowBlur = 9; ctx.fill(); ctx.shadowBlur = 0;
+    }
+    t += 1;
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+function setFlowStage(i, active, caption) {
+  flowStage = i; flowActive = !!active;
+  if (caption && $("flowCaption")) $("flowCaption").textContent = caption;
+}
 
 // ---- live crew bridge (#201): the browser POSTs {prompt, image?} and reads a stream of NDJSON
 // per-stage events, so the crew screen updates live. Configurable via an untracked crew.json.
 let CREW_URL = "cookbook/build";
 fetch("crew.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.url) CREW_URL = j.url; }).catch(() => {});
-async function liveBuildStream(prompt, image, complexity, onEvent) {
+async function liveBuildStream(prompt, image, onEvent) {
   const ctrl = new AbortController();
   // 4 sequential LLM calls (safety + structure + presentation + review ≈ 4×~14s ≈ 55s), PLUS each
   // role now retries up to 3 total attempts on a transient dial race (#148/#140 — a live-observed
@@ -293,7 +378,7 @@ async function liveBuildStream(prompt, image, complexity, onEvent) {
   // above that, not just the happy-path ~55s.
   const to = setTimeout(() => ctrl.abort(), 150000);
   try {
-    const res = await fetch(CREW_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt, image, lang: curLang, complexity }), signal: ctrl.signal });
+    const res = await fetch(CREW_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt, image, lang: curLang }), signal: ctrl.signal });
     if (!res.ok || !res.body) throw new Error("cookbook bridge " + res.status);
     const reader = res.body.getReader(); const dec = new TextDecoder();
     let buf = "", terminal = null;
@@ -338,16 +423,20 @@ $("buildBtn").addEventListener("click", async () => {
   $("card").style.display = "none";
   // immediate feedback: show the crew screen the instant the button is clicked.
   document.querySelectorAll(".crew .member").forEach((m) => m.classList.remove("active", "done"));
-  $("buildBar").style.width = "0%"; $("buildStepText").textContent = "🛰 Reaching the recipe crew over the tunnel…";
+  $("buildBar").style.width = "0%"; $("buildStep").textContent = "🛰 Reaching the recipe crew over the tunnel…";
   $("build").style.display = "block";
+  setFlowStage(0, true, "dialing the tunnel…");
   const hide = () => { $("build").style.display = "none"; };
   const bar = { safety: 20, structure: 55, presentation: 80, review: 95 };
+  const flowIdx = { safety: 1, structure: 2, presentation: 3, review: 4 };
+  const flowCaption = { safety: "safety reviewing…", structure: "ingredients being read…", presentation: "plating in progress…", review: "final review…" };
   const onEvent = (ev) => {
     const m = member(ev.stage);
     if (ev.status === "start") {
       if (m) m.classList.add("active");
       const label = { safety: "🛡️ safety agent reviewing your request…", structure: "🥕 source-2 is reading the ingredients…", presentation: "🍽️ sink is plating the dish…", review: "🧪 reviewing the finished recipe…" }[ev.stage];
-      if (label) $("buildStepText").textContent = label;
+      if (label) $("buildStep").textContent = label;
+      if (flowIdx[ev.stage] != null) setFlowStage(flowIdx[ev.stage], true, flowCaption[ev.stage]);
     } else if (ev.status === "ok" || ev.status === "done") {
       if (m) { m.classList.remove("active"); m.classList.add("done"); }
       if (bar[ev.stage]) $("buildBar").style.width = bar[ev.stage] + "%";
@@ -355,10 +444,10 @@ $("buildBtn").addEventListener("click", async () => {
   };
   try {
     let term = null;
-    const complexity = $("complexity").value || "standard";
-    try { term = await liveBuildStream(p, imageB64, complexity, onEvent); } catch (e) { term = null; }
+    try { term = await liveBuildStream(p, imageB64, onEvent); } catch (e) { term = null; }
     if (term && term.stage === "built" && term.recipe) {
-      $("buildBar").style.width = "100%"; await new Promise((r) => setTimeout(r, 350)); hide();
+      $("buildBar").style.width = "100%"; setFlowStage(FLOW_LABELS.length - 1, false, "delivered ✓");
+      await new Promise((r) => setTimeout(r, 350)); hide();
       renderCard(term.recipe);
       msg.className = "pmsg ok"; msg.textContent = "✓ Cooked up live by the crew over the tunnel.";
       if ($("card").scrollIntoView) $("card").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -387,5 +476,9 @@ $("langEn").addEventListener("click", () => applyLang("en"));
 $("langDe").addEventListener("click", () => applyLang("de"));
 applyLang(curLang);
 </script>
+<footer class="support">
+  <a href="https://steady.page/plans/77a32d9c-c399-4ca1-9515-7a628c7a9413" target="_blank" rel="noopener">💙 Support this project →</a>
+  <a href="https://buymeacoffee.com/bunsenbrenner" target="_blank" rel="noopener">☕ Buy me a coffee →</a>
+</footer>
 </body>
 </html>
