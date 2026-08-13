@@ -34,12 +34,20 @@ services:
     restart: unless-stopped
 
   cookbook-agent:
-    # The workspace ct-agent image, in Browser-Plane mode (SNI passthrough).
+    # The Browser-Plane agent (SNI passthrough), built from the standalone
+    # scimbe/ct-agent repo via this repo's own Agent.Dockerfile -- see that
+    # file's header comment. Previously built from a sibling CADS-Tunnel
+    # checkout (docker/Dockerfile, CRATE=ct-agent), which stopped working
+    # once ct-agent's source was extracted out of CADS-Tunnel core (same fix
+    # already applied to CADS-flappy-demo's flappy-agent service).
     build:
-      context: ${CT_TUNNEL_SRC:-../CADS-Tunnel}
-      dockerfile: docker/Dockerfile
+      context: .
+      dockerfile: Agent.Dockerfile
       args:
-        - CRATE=ct-agent
+        # Keep in sync with CADS-flappy-demo/CADS-webconference-demo/
+        # CADS-auction-demo's own Agent.Dockerfile CT_AGENT_REF. Bumped
+        # 2026-08-13 to v0.4.8 (ADMISSION_EXCHANGE_TIMEOUT 15s -> 45s).
+        - CT_AGENT_REF=${CT_AGENT_REF:-3823343fdc47ea4ed91819cb68bfa8e89399f3f8}
     environment:
       - CT_AGENT_MODE=browser
       - CT_AGENT_HOSTNAME=cookbook.bunsenbrenner.org
@@ -73,9 +81,11 @@ services:
     #
     # Thin-bridge migration (#219): the HTTP server + wire-format assembly used to be
     # `ct-cookbook-bridge`, a binary built INSIDE CADS-Tunnel core. It's now plain Node
-    # (bridge/server.js, this repo) — only the generic `ct-agent` CLI (used by the COOKBOOK_*_CMD
-    # role dials below) still comes from core, via bridge/Dockerfile's named `tunnel-src` build
-    # context.
+    # (bridge/server.js, this repo) — the generic `ct-agent` CLI (used by the COOKBOOK_*_CMD
+    # role dials below) is built by bridge/Dockerfile itself, cloning scimbe/ct-agent directly
+    # at a pinned ref (same fix as cookbook-agent's own Agent.Dockerfile above -- the old
+    # `tunnel-src` additional build context into a sibling CADS-Tunnel checkout stopped working
+    # once ct-agent's source was extracted out of CADS-Tunnel core).
     #
     # OPT-IN (per #194): only starts with `--profile crew`; the plain `up` runs the demo without it
     # (the page shows an "unreachable, try again" until the crew is live). The per-role vars DEFAULT
@@ -85,8 +95,8 @@ services:
     build:
       context: .
       dockerfile: bridge/Dockerfile
-      additional_contexts:
-        tunnel-src: ${CT_TUNNEL_SRC:-../CADS-Tunnel}
+      args:
+        - CT_AGENT_REF=${CT_AGENT_REF:-3823343fdc47ea4ed91819cb68bfa8e89399f3f8}
     command: ["node", "server.js"]
     environment:
       - COOKBOOK_BRIDGE_LISTEN=0.0.0.0:8789
@@ -99,8 +109,6 @@ services:
       - COOKBOOK_STRUCTURE_GRANT=${COOKBOOK_STRUCTURE_GRANT:-}
       - COOKBOOK_STRUCTURE_HOLDER_KEY=${COOKBOOK_STRUCTURE_HOLDER_KEY:-}
       - COOKBOOK_STRUCTURE_NOISE_KEY=${COOKBOOK_STRUCTURE_NOISE_KEY:-}
-      # #207: central-served standby (candidate 2) for when source-2's structure serve is down.
-      - COOKBOOK_STRUCTURE_STANDBY_GRANT=${COOKBOOK_STRUCTURE_STANDBY_GRANT:-}
       - COOKBOOK_PRESENTATION_GRANT=${COOKBOOK_PRESENTATION_GRANT:-}
       - COOKBOOK_PRESENTATION_HOLDER_KEY=${COOKBOOK_PRESENTATION_HOLDER_KEY:-}
       - COOKBOOK_PRESENTATION_NOISE_KEY=${COOKBOOK_PRESENTATION_NOISE_KEY:-}
@@ -108,9 +116,15 @@ services:
       - COOKBOOK_REVIEW_HOLDER_KEY=${COOKBOOK_REVIEW_HOLDER_KEY:-}
       - COOKBOOK_REVIEW_NOISE_KEY=${COOKBOOK_REVIEW_NOISE_KEY:-}
       - "COOKBOOK_SAFETY_CMD=env CT_CHANNEL_ROLE=initiate CT_CHANNEL_CALL_SERVICE=safety_check CT_CHANNEL_BROKER=$$COOKBOOK_EDGE_BROKER CT_CHANNEL_RELAY=$$COOKBOOK_EDGE_RELAY CT_CHANNEL_RELAY_ONLY=1 CT_CHANNEL_GRANT=$$COOKBOOK_SAFETY_GRANT CT_CHANNEL_HOLDER_KEY=$$COOKBOOK_SAFETY_HOLDER_KEY CT_CHANNEL_NOISE_KEY=$$COOKBOOK_SAFETY_NOISE_KEY ct-agent channel"
+      # #226 (workflow-pipelines side): no real standby structure server is actually running —
+      # a COOKBOOK_STRUCTURE_CMD_2 candidate pointing at an unset COOKBOOK_STRUCTURE_STANDBY_GRANT
+      # used to be defined unconditionally here. roleCandidates() only checks that the env var is
+      # non-empty (the command template text always is), so it was ALWAYS added as a "real"
+      # candidate regardless of whether its grant was actually configured — meaning any transient
+      # failure on the real (only) structure server's single-attempt primary dial fell through to
+      # this guaranteed-broken standby ("CT_CHANNEL_GRANT required") instead of getting its full
+      # 5-attempt retry budget. Removed until a real standby structure server actually exists.
       - "COOKBOOK_STRUCTURE_CMD=env CT_CHANNEL_ROLE=initiate CT_CHANNEL_CALL_SERVICE=text_generation CT_CHANNEL_BROKER=$$COOKBOOK_EDGE_BROKER CT_CHANNEL_RELAY=$$COOKBOOK_EDGE_RELAY CT_CHANNEL_RELAY_ONLY=1 CT_CHANNEL_GRANT=$$COOKBOOK_STRUCTURE_GRANT CT_CHANNEL_HOLDER_KEY=$$COOKBOOK_STRUCTURE_HOLDER_KEY CT_CHANNEL_NOISE_KEY=$$COOKBOOK_STRUCTURE_NOISE_KEY ct-agent channel"
-      # #207 Slice A: candidate 2 — central's standby, tried only if source-2 (candidate 1) fails.
-      - "COOKBOOK_STRUCTURE_CMD_2=env CT_CHANNEL_ROLE=initiate CT_CHANNEL_CALL_SERVICE=text_generation CT_CHANNEL_BROKER=$$COOKBOOK_EDGE_BROKER CT_CHANNEL_RELAY=$$COOKBOOK_EDGE_RELAY CT_CHANNEL_RELAY_ONLY=1 CT_CHANNEL_GRANT=$$COOKBOOK_STRUCTURE_STANDBY_GRANT CT_CHANNEL_HOLDER_KEY=$$COOKBOOK_STRUCTURE_HOLDER_KEY CT_CHANNEL_NOISE_KEY=$$COOKBOOK_STRUCTURE_NOISE_KEY ct-agent channel"
       - "COOKBOOK_PRESENTATION_CMD=env CT_CHANNEL_ROLE=initiate CT_CHANNEL_CALL_SERVICE=text_generation CT_CHANNEL_BROKER=$$COOKBOOK_EDGE_BROKER CT_CHANNEL_RELAY=$$COOKBOOK_EDGE_RELAY CT_CHANNEL_RELAY_ONLY=1 CT_CHANNEL_GRANT=$$COOKBOOK_PRESENTATION_GRANT CT_CHANNEL_HOLDER_KEY=$$COOKBOOK_PRESENTATION_HOLDER_KEY CT_CHANNEL_NOISE_KEY=$$COOKBOOK_PRESENTATION_NOISE_KEY ct-agent channel"
       - "COOKBOOK_REVIEW_CMD=env CT_CHANNEL_ROLE=initiate CT_CHANNEL_CALL_SERVICE=safety_check CT_CHANNEL_BROKER=$$COOKBOOK_EDGE_BROKER CT_CHANNEL_RELAY=$$COOKBOOK_EDGE_RELAY CT_CHANNEL_RELAY_ONLY=1 CT_CHANNEL_GRANT=$$COOKBOOK_REVIEW_GRANT CT_CHANNEL_HOLDER_KEY=$$COOKBOOK_REVIEW_HOLDER_KEY CT_CHANNEL_NOISE_KEY=$$COOKBOOK_REVIEW_NOISE_KEY ct-agent channel"
     expose:
