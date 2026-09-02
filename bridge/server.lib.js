@@ -206,9 +206,21 @@ function assembleRecipe(structureJson, presentationJson) {
   };
 }
 
-/** Write one NDJSON event to the response stream. */
+/** Write one NDJSON event to the response stream. Returns false if the client is already gone
+ * (disconnected/backgrounded mid-build) instead of throwing — callers should stop driving the
+ * pipeline forward in that case rather than paying for further LLM calls nobody will read. */
 function emit(res, ev) {
-  res.write(JSON.stringify(ev) + "\n");
+  if (res.destroyed || res.writableEnded) {
+    process.stderr.write(`cookbook-crew-bridge: client gone, dropping stage=${ev.stage}\n`);
+    return false;
+  }
+  try {
+    res.write(JSON.stringify(ev) + "\n");
+    return true;
+  } catch (e) {
+    process.stderr.write(`cookbook-crew-bridge: write failed (client gone?) at stage=${ev.stage}: ${e.message}\n`);
+    return false;
+  }
 }
 
 /**
@@ -235,7 +247,9 @@ async function runCookbookStreaming(prompt, image, lang, complexity, safetyCmd, 
     const reason = typeof verdict.reason === "string" ? verdict.reason : "rejected by the safety agent";
     return emit(res, { stage: "rejected", safety: { ok: false, reason } });
   }
-  emit(res, { stage: "safety", status: "ok" });
+  // If the client is already gone (backgrounded tab, dropped network, etc.), stop here rather
+  // than paying for structure/presentation/review calls nobody will read.
+  if (!emit(res, { stage: "safety", status: "ok" })) return;
 
   // 2. structure (source-2) — the photo bytes travel over the channel as base64 in the JSON the
   //    role receives; source-2's handler decodes it to a local temp file for its own claude -p.
@@ -248,7 +262,7 @@ async function runCookbookStreaming(prompt, image, lang, complexity, safetyCmd, 
   } catch (e) {
     return emit(res, { stage: "error", message: `structure role unreachable: ${e.message}` });
   }
-  emit(res, { stage: "structure", status: "done" });
+  if (!emit(res, { stage: "structure", status: "done" })) return;
 
   // 3. presentation (sink) — names/themes/plates over the ACTUAL recipe, so it takes structure's
   //    output as context. Sequential (not parallel) because of this dependency.
@@ -266,7 +280,7 @@ async function runCookbookStreaming(prompt, image, lang, complexity, safetyCmd, 
   } catch (e) {
     return emit(res, { stage: "error", message: `presentation role unreachable: ${e.message}` });
   }
-  emit(res, { stage: "presentation", status: "done" });
+  if (!emit(res, { stage: "presentation", status: "done" })) return;
 
   // 4. assemble the recipe card (fail-closed on a malformed fragment).
   let card;
