@@ -24,12 +24,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 # Which ct-agent commit to build -- bump deliberately, matching this repo's own Agent.Dockerfile
-# pin. Bumped 2026-08-13 (v0.4.8): THE actual root cause of CADS-Tunnel#494, pinned by the
-# operator via live edge logs -- the edge parks a lone first pairing member for a 30s TTL, but the
-# client's own ADMISSION_EXCHANGE_TIMEOUT was only 15s, so any pairing whose second side took
-# 15-30s to arrive failed deterministically. v0.4.8 raises it to 45s. Keep in sync with
-# Agent.Dockerfile's own CT_AGENT_REF.
-ARG CT_AGENT_REF=3823343fdc47ea4ed91819cb68bfa8e89399f3f8
+# pin. Was pinned at v0.4.8 since 2026-08-13 (CADS-Tunnel#494 admission-timeout fix). Bumped to
+# v0.5.7 on 2026-09-02 to match CADS-a2a-demo/CADS-auction-demo, which had already moved ahead --
+# cookbook was the one demo left on the older line. Keep in sync with Agent.Dockerfile's own
+# CT_AGENT_REF.
+ARG CT_AGENT_REF=v0.5.7
 RUN git clone https://github.com/scimbe/ct-agent.git /build && cd /build && git checkout "${CT_AGENT_REF}"
 WORKDIR /build
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

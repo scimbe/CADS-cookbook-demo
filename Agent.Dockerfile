@@ -19,14 +19,11 @@ FROM rust:1-slim-bookworm AS builder
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
-# Bumped 2026-08-13 (v0.4.8): THE actual root cause of the admission-stall
-# saga (CADS-Tunnel#494), pinned by the operator via live edge logs -- the
-# edge parks a lone first pairing member for a 30s TTL waiting for its
-# partner, but the CLIENT's own ADMISSION_EXCHANGE_TIMEOUT was only 15s.
-# v0.4.8 raises it to 45s. Keep in sync with bridge/Dockerfile's own
-# CT_AGENT_REF, and with CADS-flappy-demo/CADS-webconference-demo/
-# CADS-auction-demo's own Agent.Dockerfile pins.
-ARG CT_AGENT_REF=3823343fdc47ea4ed91819cb68bfa8e89399f3f8
+# Was pinned at v0.4.8 since 2026-08-13 (admission-stall fix, CADS-Tunnel#494).
+# Bumped to v0.5.7 on 2026-09-02 to match CADS-a2a-demo/CADS-auction-demo,
+# which had already moved ahead -- cookbook was the one demo left on the
+# older line. Keep in sync with bridge/Dockerfile's own CT_AGENT_REF.
+ARG CT_AGENT_REF=v0.5.7
 RUN git clone https://github.com/scimbe/ct-agent.git /build && cd /build && git checkout "${CT_AGENT_REF}"
 WORKDIR /build
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
