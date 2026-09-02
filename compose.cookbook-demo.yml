@@ -45,9 +45,12 @@ services:
       dockerfile: Agent.Dockerfile
       args:
         # Keep in sync with CADS-flappy-demo/CADS-webconference-demo/
-        # CADS-auction-demo's own Agent.Dockerfile CT_AGENT_REF. Bumped
-        # 2026-08-13 to v0.4.8 (ADMISSION_EXCHANGE_TIMEOUT 15s -> 45s).
-        - CT_AGENT_REF=${CT_AGENT_REF:-3823343fdc47ea4ed91819cb68bfa8e89399f3f8}
+        # CADS-auction-demo's own Agent.Dockerfile CT_AGENT_REF. Was v0.4.8
+        # since 2026-08-13 (ADMISSION_EXCHANGE_TIMEOUT 15s -> 45s); bumped to
+        # v0.5.7 on 2026-09-02 to match a2a-demo/auction-demo. This default
+        # here previously silently overrode the Dockerfile's own ARG default
+        # (a real bug, not just a stale comment) -- keep both in sync by hand.
+        - CT_AGENT_REF=${CT_AGENT_REF:-v0.5.7}
     environment:
       - CT_AGENT_MODE=browser
       - CT_AGENT_HOSTNAME=cookbook.bunsenbrenner.org
@@ -96,7 +99,7 @@ services:
       context: .
       dockerfile: bridge/Dockerfile
       args:
-        - CT_AGENT_REF=${CT_AGENT_REF:-3823343fdc47ea4ed91819cb68bfa8e89399f3f8}
+        - CT_AGENT_REF=${CT_AGENT_REF:-v0.5.7}
     command: ["node", "server.js"]
     environment:
       - COOKBOOK_BRIDGE_LISTEN=0.0.0.0:8789
