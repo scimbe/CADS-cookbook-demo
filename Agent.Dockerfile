@@ -24,7 +24,18 @@ RUN apt-get update \
 # which had already moved ahead -- cookbook was the one demo left on the
 # older line. Keep in sync with bridge/Dockerfile's own CT_AGENT_REF.
 ARG CT_AGENT_REF=v0.5.7
-RUN git clone https://github.com/scimbe/ct-agent.git /build && cd /build && git checkout "${CT_AGENT_REF}"
+# Optional gh-token secret (--secret id=gh_token,src=<file>): GitHub's anonymous
+# git-clone rate limit for this host's IP was hit 2026-09-02 (anonymous curl/DNS
+# still worked, only the git smart-HTTP clone got an auth challenge) -- falls
+# back to a plain anonymous clone when no secret is passed, so this stays a
+# no-op for anyone building without a token.
+RUN --mount=type=secret,id=gh_token \
+    if [ -s /run/secrets/gh_token ]; then \
+      git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $(printf 'x:%s' "$(cat /run/secrets/gh_token)" | base64 -w0)" clone https://github.com/scimbe/ct-agent.git /build; \
+    else \
+      git clone https://github.com/scimbe/ct-agent.git /build; \
+    fi \
+    && cd /build && git checkout "${CT_AGENT_REF}"
 WORKDIR /build
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
