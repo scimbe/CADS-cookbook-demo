@@ -23,7 +23,7 @@ RUN apt-get update \
 # Bumped to v0.5.7 on 2026-09-02 to match CADS-a2a-demo/CADS-auction-demo,
 # which had already moved ahead -- cookbook was the one demo left on the
 # older line. Keep in sync with bridge/Dockerfile's own CT_AGENT_REF.
-ARG CT_AGENT_REF=v0.7.22
+ARG CT_AGENT_REF=v0.7.24
 # Optional gh-token secret (--secret id=gh_token,src=<file>): GitHub's anonymous
 # git-clone rate limit for this host's IP was hit 2026-09-02 (anonymous curl/DNS
 # still worked, only the git smart-HTTP clone got an auth challenge) -- falls

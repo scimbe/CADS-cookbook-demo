@@ -50,7 +50,7 @@ services:
         # v0.5.7 on 2026-09-02 to match a2a-demo/auction-demo. This default
         # here previously silently overrode the Dockerfile's own ARG default
         # (a real bug, not just a stale comment) -- keep both in sync by hand.
-        - CT_AGENT_REF=${CT_AGENT_REF:-v0.7.22}
+        - CT_AGENT_REF=${CT_AGENT_REF:-v0.7.24}
     environment:
       - CT_AGENT_MODE=browser
       - CT_AGENT_HOSTNAME=cookbook.bunsenbrenner.org
@@ -99,7 +99,7 @@ services:
       context: .
       dockerfile: bridge/Dockerfile
       args:
-        - CT_AGENT_REF=${CT_AGENT_REF:-v0.7.22}
+        - CT_AGENT_REF=${CT_AGENT_REF:-v0.7.24}
     command: ["node", "server.js"]
     environment:
       - COOKBOOK_BRIDGE_LISTEN=0.0.0.0:8789
